@@ -64,7 +64,11 @@ def parseCmd(cmd):
 		dic[cmd[1]] = cmd[2]
 		return ret
 	elif cmd[0] == '/delUser':
-		ret = ('User ' + dic[cmd[1]] + '(' + cmd[1] + ') quitted the chatting.')
+		try:
+			name = dic[cmd[1]]
+		except KeyError:
+			return ('User ' + cmd[1] + ' quitted the chatting.')
+		ret = ('User ' + name + '(' + cmd[1] + ') quitted the chatting.')
 		del dic[cmd[1]]
 		return ret
 
