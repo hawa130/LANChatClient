@@ -135,6 +135,14 @@ class processText(object):
 		except ConnectionResetError:
 			print('Cannot connect to the server.')
 			time.sleep(5)
+			try:
+				processText.connect(host, port)
+			except ConnectionRefusedError:
+				pass
+			except TimeoutError:
+				pass
+			except OSError:
+				pass
 			return
 		if msg == None:
 			return
@@ -449,6 +457,8 @@ class Ui_LoginDialog(object):
 		self.buttonBox.accepted.connect(self.login)
 		self.buttonBox.rejected.connect(LoginDialog.reject)
 		self.checkBox.stateChanged.connect(self.remInfo)
+		self.NameEdit.returnPressed.connect(self.PwEdit.setFocus)
+
 		QtCore.QMetaObject.connectSlotsByName(LoginDialog)
 		LoginDialog.setTabOrder(self.IPEdit, self.spinBox)
 		LoginDialog.setTabOrder(self.spinBox, self.NameEdit)
@@ -490,6 +500,8 @@ class iLoginDialog(QtWidgets.QDialog, Ui_LoginDialog):
 			self.NameEdit.setText(self.name)
 			self.password = saved.readline().replace('\n', '')
 			self.PwEdit.setText(self.password)
+		self.NameEdit.textChanged.connect(self.removeSaved)
+		self.PwEdit.textChanged.connect(self.removeSaved)
 		
 	def login(self):
 		global host
@@ -547,6 +559,9 @@ class iLoginDialog(QtWidgets.QDialog, Ui_LoginDialog):
 
 	def showMessage(self, msg):
 		QtWidgets.QMessageBox.information(self, 'Something went wrong...', msg)
+
+	def removeSaved(self, string):
+		self.read = False
 
 def login():
 	if iLoginDialog().exec_():
