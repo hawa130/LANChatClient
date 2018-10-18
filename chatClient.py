@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import os
 import re
 import sys
 import time
@@ -16,6 +17,7 @@ global myaddr
 s = socket.socket()
 dic = {}
 IPpattern = r'\(((25[0-5]|2[0-4]\d|((1\d{2})|([1-9]?\d)))\.){3}(25[0-5]|2[0-4]\d|((1\d{2})|([1-9]?\d)))\)'
+history = open('history.html', 'w')
 
 class processText(object):
 	def __init__(self):
@@ -46,14 +48,16 @@ class processText(object):
 			except KeyError:
 				name = ip
 			nowTime = datetime.datetime.now().strftime('%H:%M:%S')
-			return ('<font color="gray">' + name + '(' + ip + ') speaks to you quietly at ' + nowTime + ' :</font><br><font color="black">' + cmd + '</font>')
+			return ('<font color="gray">' + name + '(' + ip + ') speaks to you quietly at ' \
+				+ nowTime + ' :</font><br><font color="black">' + cmd + '</font>')
 		else:
+			ret = ''
 			opt = cmd.split(' ')
 			if opt[0] == '/login':
 				if opt[1] == 'true':
 					ret = 'Logged in!'
 				elif opt[1] == 'false':
-					ret = 'Failed. Please check your information and try again.'
+					ret = 'Authentication failed. Please check your information and try again.'
 			elif opt[0] == '/admin':
 				if opt[1] == 'true':
 					ret = 'Logged in as administrator.'
@@ -61,7 +65,7 @@ class processText(object):
 					ret = 'Failed.'
 			elif opt[0] == '/newUser' or opt[0] == '/changeName' or opt[0] == '/delUser':
 				return cmd
-		return '<i><font color="gray">' + ret + '</font></i>'
+			return '<i><font color="gray">' + ret + '</font></i>'
 
 	def parseText(msg):
 		msg = msg[6:]
@@ -98,14 +102,24 @@ class processText(object):
 			msg = '/text ' + msg
 		elif msg[:6] == '/login':
 			msg = msg[7:].split(' ')
-			password = hashlib.md5(msg[1].encode('utf-8')).hexdigest()
-			msg = '/login ' + msg[0] + ' ' + password
+			if re.search(IPpattern, msg[0]):
+				print('Invalid username.')
+				return 'NameErr'
+			elif len(msg[0]) > 20:
+				msg[0] = msg[0][:20]
+			msg = '/login ' + msg[0] + ' ' + msg[1]
 		elif msg[:12] == '/setPassword':
-			msg = '/setPassword ' + hashlib.md5(msg[13:].encode('utf-8')).hexdigest()
+			msg = msg[13:].split(' ')
+			if len(msg) > 2:
+				print('Invalid password.')
+				return 'PwErr'
+			msg = '/setPassword ' + hashlib.md5(msg[0].encode('utf-8')).hexdigest() + ' ' \
+			+ hashlib.md5(msg[1].encode('utf-8')).hexdigest()
 		elif msg[:8] == '/setName':
 			msg = msg[9:]
-			if re.search(IPpattern, msg):
-				return
+			if ' ' in msg or re.search(IPpattern, msg):
+				print('Invalid name.')
+				return 'NameErr'
 			elif len(msg) > 20:
 				msg = msg[:20]
 			msg = '/setName ' + msg
@@ -113,6 +127,7 @@ class processText(object):
 			s.send(msg.encode('GBK'))
 		except ConnectionResetError:
 			print('Cannot connect to the server.')
+			return 'ConErr'
 
 	def receive(self):
 		try:
@@ -130,7 +145,7 @@ class processText(object):
 			if msg[:7] == '/server':
 				nowTime = datetime.datetime.now().strftime('%H:%M:%S')
 				return ('<b><font color="gray">Server ' + nowTime + '</font></b><br>' + msg[8:])
-			elif msg[0] == '/':
+			else:
 				return self.parseCmd(msg)
 
 class MyThread(QtCore.QThread):
@@ -210,14 +225,21 @@ class Ui_MainWindow(object):
 		self.statusbar = QtWidgets.QStatusBar(MainWindow)
 		self.statusbar.setObjectName("statusbar")
 		MainWindow.setStatusBar(self.statusbar)
-		self.actionAbout = QtWidgets.QAction(MainWindow)
-		self.actionAbout.setObjectName("actionAbout")
 		self.actionHelp = QtWidgets.QAction(MainWindow)
 		self.actionHelp.setObjectName("actionHelp")
-		self.menuAbout.addAction(self.actionAbout)
-		self.menuAbout.addSeparator()
+		self.actionAbout = QtWidgets.QAction(MainWindow)
+		self.actionAbout.setObjectName("actionAbout")
+		self.actionUpdate = QtWidgets.QAction(MainWindow)
+		self.actionUpdate.setObjectName("actionUpdate")
 		self.menuAbout.addAction(self.actionHelp)
+		self.menuAbout.addSeparator()
+		self.menuAbout.addAction(self.actionUpdate)
+		self.menuAbout.addAction(self.actionAbout)
 		self.menubar.addAction(self.menuAbout.menuAction())
+
+		self.actionAbout.triggered.connect(self.showAbout)
+		self.actionHelp.triggered.connect(self.showHelp)
+		self.actionUpdate.triggered.connect(self.checkForUpdates)
 
 		self.retranslateUi(MainWindow)
 		self.sendButton.clicked.connect(self.TextArea.setFocus)
@@ -239,9 +261,10 @@ class Ui_MainWindow(object):
 		_translate = QtCore.QCoreApplication.translate
 		MainWindow.setWindowTitle(_translate("MainWindow", "Chat Client"))
 		self.sendButton.setText(_translate("MainWindow", "Send"))
-		self.menuAbout.setTitle(_translate("MainWindow", "About"))
-		self.actionAbout.setText(_translate("MainWindow", "About"))
+		self.menuAbout.setTitle(_translate("MainWindow", "Help"))
 		self.actionHelp.setText(_translate("MainWindow", "Help"))
+		self.actionUpdate.setText(_translate("MainWindow", "Check for Updates..."))
+		self.actionAbout.setText(_translate("MainWindow", "About"))
 
 class Window(QtWidgets.QMainWindow, Ui_MainWindow):
 	def __init__(self):
@@ -284,6 +307,8 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
 		self.TextArea.setFocus()
 	
 	def initStatusbar(self):
+		global host
+		global port
 		self.statusbar.showMessage('Connected to ' + host + ':' + str(port))
 	
 	def sendStatus(self):
@@ -292,12 +317,20 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
 
 	def sendMessage(self):
 		message = self.TextArea.toPlainText()
-		processText.send(processText, message)
-		self.TextArea.clear()
+		err = processText.send(processText, message)
+		if err == 'PwErr':
+			self.showMessage('Invalid password.')
+		elif err == 'NameErr':
+			self.showMessage('Invalid name.')
+		elif err == 'ConErr':
+			self.showMessage('Cannot connect to the server.')
+		else:
+			self.TextArea.clear()
 
 	def updateText(self, message):
 		message = self.parseCmd(message)
 		self.textBrowser.append(message)
+		print(message + '<br>', file = history)
 		print(message)
 		self.textBrowser.moveCursor(QtGui.QTextCursor.End)
 
@@ -320,24 +353,211 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
 		for item in items:
 			item.setText(new)
 
-if __name__ == '__main__':
-	host = input('Input IP address: ')
-	#host = '172.16.42.32'
-	myaddr = socket.gethostbyname(socket.gethostname())
+	def showAbout(self):
+		QtWidgets.QMessageBox.about(self, 'About', 
+			'''LAN Chat Client made by <a href="https://www.hawa130.xyz/">hawa130</a>.
+			<center><a href="https://github.com/hawa130/LANChatClient">GitHub</a></center>''')
+
+	def showHelp(self):
+		QtWidgets.QMessageBox.about(self, 'Help', 
+			'''<pre>/setName [NewName]</pre> Reset your name.<br>
+			<pre>/sendto [Name] [Message]</pre> Send a message to a designated user.<br>
+			<center><a href="https://github.com/hawa130/LANChatClient/blob/master/README.md">Online Documentation</a></center>''')
+
+	def checkForUpdates(self):
+		QtGui.QDesktopServices.openUrl(QtCore.QUrl('https://github.com/hawa130/LANChatClient/releases'))
+
+	def showMessage(self, msg):
+		QtWidgets.QMessageBox.information(self, 'Something went wrong...', msg)
+
+class Ui_LoginDialog(object):
+	def setupUi(self, LoginDialog):
+		LoginDialog.setObjectName("LoginDialog")
+		LoginDialog.resize(325, 196)
+		font = QtGui.QFont()
+		font.setFamily("微软雅黑")
+		font.setBold(False)
+		font.setWeight(50)
+		LoginDialog.setFont(font)
+		self.gridLayout = QtWidgets.QGridLayout(LoginDialog)
+		self.gridLayout.setObjectName("gridLayout")
+		self.horizontalLayout = QtWidgets.QHBoxLayout()
+		self.horizontalLayout.setObjectName("horizontalLayout")
+		self.labelIP = QtWidgets.QLabel(LoginDialog)
+		self.labelIP.setObjectName("labelIP")
+		self.horizontalLayout.addWidget(self.labelIP)
+		self.IPEdit = QtWidgets.QLineEdit(LoginDialog)
+		self.IPEdit.setFocusPolicy(QtCore.Qt.StrongFocus)
+		self.IPEdit.setObjectName("IPEdit")
+		self.horizontalLayout.addWidget(self.IPEdit)
+		self.labelPort = QtWidgets.QLabel(LoginDialog)
+		self.labelPort.setObjectName("labelPort")
+		self.horizontalLayout.addWidget(self.labelPort)
+		self.spinBox = QtWidgets.QSpinBox(LoginDialog)
+		self.spinBox.setMaximum(65535)
+		self.spinBox.setProperty("value", 8889)
+		self.spinBox.setObjectName("spinBox")
+		self.horizontalLayout.addWidget(self.spinBox)
+		self.gridLayout.addLayout(self.horizontalLayout, 2, 1, 1, 2)
+		spacerItem = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+		self.gridLayout.addItem(spacerItem, 4, 0, 1, 1)
+		self.PwEdit = QtWidgets.QLineEdit(LoginDialog)
+		self.PwEdit.setEchoMode(QtWidgets.QLineEdit.Password)
+		self.PwEdit.setObjectName("PwEdit")
+		self.gridLayout.addWidget(self.PwEdit, 5, 2, 1, 1)
+		spacerItem1 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+		self.gridLayout.addItem(spacerItem1, 4, 3, 1, 1)
+		spacerItem2 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+		self.gridLayout.addItem(spacerItem2, 5, 0, 1, 1)
+		self.LabelName = QtWidgets.QLabel(LoginDialog)
+		self.LabelName.setObjectName("LabelName")
+		self.gridLayout.addWidget(self.LabelName, 4, 1, 1, 1)
+		spacerItem3 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+		self.gridLayout.addItem(spacerItem3, 5, 3, 1, 1)
+		self.NameEdit = QtWidgets.QLineEdit(LoginDialog)
+		self.NameEdit.setObjectName("NameEdit")
+		self.gridLayout.addWidget(self.NameEdit, 4, 2, 1, 1)
+		self.buttonBox = QtWidgets.QDialogButtonBox(LoginDialog)
+		self.buttonBox.setOrientation(QtCore.Qt.Horizontal)
+		self.buttonBox.setStandardButtons(QtWidgets.QDialogButtonBox.Cancel|QtWidgets.QDialogButtonBox.Ok)
+		self.buttonBox.setObjectName("buttonBox")
+		self.gridLayout.addWidget(self.buttonBox, 8, 2, 1, 1)
+		spacerItem4 = QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
+		self.gridLayout.addItem(spacerItem4, 7, 2, 1, 1)
+		self.labelPw = QtWidgets.QLabel(LoginDialog)
+		self.labelPw.setObjectName("labelPw")
+		self.gridLayout.addWidget(self.labelPw, 5, 1, 1, 1)
+		spacerItem5 = QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
+		self.gridLayout.addItem(spacerItem5, 0, 2, 1, 1)
+		spacerItem6 = QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
+		self.gridLayout.addItem(spacerItem6, 3, 2, 1, 1)
+		spacerItem7 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+		self.gridLayout.addItem(spacerItem7, 2, 3, 1, 1)
+		spacerItem8 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+		self.gridLayout.addItem(spacerItem8, 2, 0, 1, 1)
+		self.checkBox = QtWidgets.QCheckBox(LoginDialog)
+		self.checkBox.setObjectName("checkBox")
+		self.gridLayout.addWidget(self.checkBox, 6, 2, 1, 1)
+		self.buttonBox.raise_()
+		self.PwEdit.raise_()
+		self.LabelName.raise_()
+		self.labelPw.raise_()
+		self.NameEdit.raise_()
+		self.checkBox.raise_()
+
+		self.retranslateUi(LoginDialog)
+		self.buttonBox.accepted.connect(self.login)
+		self.buttonBox.rejected.connect(LoginDialog.reject)
+		self.checkBox.stateChanged.connect(self.remInfo)
+		QtCore.QMetaObject.connectSlotsByName(LoginDialog)
+		LoginDialog.setTabOrder(self.IPEdit, self.spinBox)
+		LoginDialog.setTabOrder(self.spinBox, self.NameEdit)
+		LoginDialog.setTabOrder(self.NameEdit, self.PwEdit)
+		LoginDialog.setTabOrder(self.PwEdit, self.checkBox)
+
+	def retranslateUi(self, LoginDialog):
+		_translate = QtCore.QCoreApplication.translate
+		LoginDialog.setWindowTitle(_translate("LoginDialog", "Log in"))
+		self.labelIP.setText(_translate("LoginDialog", "IP"))
+		self.labelPort.setText(_translate("LoginDialog", "Port"))
+		self.LabelName.setText(_translate("LoginDialog", "Username"))
+		self.labelPw.setText(_translate("LoginDialog", "Password"))
+		self.checkBox.setText(_translate("LoginDialog", "Remember me"))
+
+class iLoginDialog(QtWidgets.QDialog, Ui_LoginDialog):
+	flag = False
+	read = False
+	host = '127.0.0.1'
 	port = 8889
-	dic[host] = 'Server'
-	dic['127.0.0.1'] = 'Server'
-	try:
-		processText.connect(host, port)
-	except ConnectionRefusedError:
-		print('Cannot connect to the server.')
-	except TimeoutError:
-		print('Connection time out.')
-	except OSError:
-		print('Invalid operation.')
-	else:
-		app = QtWidgets.QApplication(sys.argv)
-		app.setStyle('Fusion')
+	name = ''
+	password = ''
+	def __init__(self):
+		super(iLoginDialog, self).__init__()
+		self.setupUi(self)
+		try:
+			saved = open('savedinfo')
+		except FileNotFoundError:
+			pass
+		else:
+			self.read = True
+			self.flag = True
+			self.checkBox.toggle()
+			self.host = saved.readline().replace('\n', '')
+			self.IPEdit.setText(self.host)
+			self.port = int(saved.readline())
+			self.spinBox.setValue(self.port)
+			self.name = saved.readline().replace('\n', '')
+			self.NameEdit.setText(self.name)
+			self.password = saved.readline().replace('\n', '')
+			self.PwEdit.setText(self.password)
+		
+	def login(self):
+		global host
+		global port
+		host = self.host = self.IPEdit.text()
+		port = self.port = self.spinBox.value()
+		self.name = self.NameEdit.text()
+		self.password = self.PwEdit.text()
+		if not self.read:
+			self.password = hashlib.md5(self.password.encode('utf-8')).hexdigest()
+		if self.flag:
+			saved = open('savedinfo','w')
+			print(self.host, file = saved)
+			print(self.port, file = saved)
+			print(self.name, file = saved)
+			print(self.password, file = saved)
+			saved.close()
+		else:
+			try:
+				os.remove('savedinfo')
+			except FileNotFoundError:
+				pass
+		if ' ' in self.password or ' ' in self.name:
+			print('Invalid password or name.')
+			self.showMessage('Invalid password or name.')
+			return
+		try:
+			processText.connect(self.host, self.port)
+		except ConnectionRefusedError:
+			print('Cannot connect to the server.')
+			self.showMessage('Cannot connect to the server.')
+		except TimeoutError:
+			print('Connection time out.')
+			self.showMessage('Connection time out.')
+		except OSError:
+			print('Cannot connect to the server. Please check your IP address.')
+			self.showMessage('Cannot connect to the server.<br>Please check your IP address.')
+		else:
+			if processText.send(processText, '/login ' + self.name + ' ' + self.password) == 'NameErr':
+				print('Invalid username.')
+				self.showMessage('Invalid username.')
+			msg = processText.receive(processText)
+			print(msg)
+			if msg == '<i><font color="gray">Logged in!</font></i>':
+				self.accept()
+			else:
+				self.showMessage('Authentication failed. Please check your information and try again.')
+				return
+
+	def remInfo(self, state):
+		if state == QtCore.Qt.Checked:
+			self.flag = True
+		else:
+			self.flag = False
+
+	def showMessage(self, msg):
+		QtWidgets.QMessageBox.information(self, 'Something went wrong...', msg)
+
+def login():
+	if iLoginDialog().exec_():
+		return True
+	return False
+
+if __name__ == '__main__':
+	myaddr = socket.gethostbyname(socket.gethostname())
+	mainApp = QtWidgets.QApplication(sys.argv)
+	mainApp.setStyle('Fusion')
+	if login():
 		widget = Window()
 		widget.show()
-		sys.exit(app.exec_())
+		sys.exit(mainApp.exec_())
