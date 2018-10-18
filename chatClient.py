@@ -146,15 +146,12 @@ class processText(object):
 			return
 		if msg == None:
 			return
-		data = msg.split('\n')
 		if msg[:5] == '/text':
 			return self.parseText(msg)
-		for msg in data:
-			if msg[:7] == '/server':
-				nowTime = datetime.datetime.now().strftime('%H:%M:%S')
-				return ('<b><font color="gray">Server ' + nowTime + '</font></b><br>' + msg[8:])
-			else:
-				return self.parseCmd(msg)
+		if msg[:7] == '/server':
+			nowTime = datetime.datetime.now().strftime('%H:%M:%S')
+			return ('<b><font color="gray">Server ' + nowTime + '</font></b><br>' + msg[8:])
+		return self.parseCmd(msg)
 
 class MyThread(QtCore.QThread):
 	trigger = QtCore.pyqtSignal(str)
@@ -280,11 +277,15 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
 		self.setupUi(self)
 
 	def parseCmd(self, cmd):
-		opt = cmd.split(' ')
+		if cmd == None or cmd == '':
+			return
+		qwq = cmd.split('\n')
+		opt = qwq[0].split(' ')
 		if opt[0] == '/newUser':
 			dic[opt[1]] = opt[2]
 			self.addToList(opt[2] + '(' + opt[1] + ')')
 			ret = 'User ' + opt[2] + '(' + opt[1] + ')' + ' joined in the chatting.'
+			self.parseCmd(cmd[len(qwq[0]) + 1:])
 			return '<font color="gray">' + ret + '</font>'
 		elif opt[0] == '/changeName':
 			try:
@@ -303,7 +304,7 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
 			else:
 				ret = 'User ' + name + '(' + opt[1] + ') quitted the chatting.'
 				del dic[opt[1]]
-			self.delFromList(name + '(' + opt[1] + ')')
+				self.delFromList(name + '(' + opt[1] + ')')
 			return '<font color="gray">' + ret + '</font>'
 		else:
 			return cmd
